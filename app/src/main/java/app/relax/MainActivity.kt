@@ -15,6 +15,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -39,11 +42,19 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-private val BG = Color(0xFF0F172A)
-private val CARD = Color(0xFF1E293B)
-private val MUTED = Color(0xFF94A3B8)
-private val TIERC = mapOf(1 to Color(0xFFF59E0B), 2 to Color(0xFF38BDF8), 3 to Color(0xFF94A3B8))
+private val BG = Color(0xFF0B1220)
+private val CARD = Color(0xFF151E2E)
+private val CARD2 = Color(0xFF1B2638)
+private val BORDER = Color(0xFF2A364A)
+private val MUTED = Color(0xFF8B9BB4)
+private val TEXT = Color(0xFFF1F5F9)
+private val ACCENT = Color(0xFF38BDF8)
+private val AMBER = Color(0xFFF59E0B)
+private val GREEN = Color(0xFF22C55E)
+private val TIERC = mapOf(1 to AMBER, 2 to ACCENT, 3 to MUTED)
 private val TIERN = mapOf(1 to "P1", 2 to "P2", 3 to "P3")
+private val ShapeMd = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
+private val ShapeSm = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
 
 private val POSTED = listOf(
     "Within 1 hour" to 1L, "Within 6 hours" to 6L, "Within 12 hours" to 12L, "Within a day" to 24L,
@@ -179,10 +190,16 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
-                    primary = Color(0xFF3B82F6), background = BG, surface = CARD,
-                    onBackground = Color(0xFFE2E8F0), onSurface = Color(0xFFE2E8F0),
+                    primary = ACCENT,
+                    onPrimary = BG,
+                    secondary = AMBER,
+                    background = BG,
+                    surface = CARD,
+                    onBackground = TEXT,
+                    onSurface = TEXT,
+                    outline = BORDER,
                 ),
-            ) { Surface(color = BG) { App(vm) } }
+            ) { Surface(color = BG, modifier = Modifier.fillMaxSize()) { App(vm) } }
         }
     }
 
@@ -198,9 +215,34 @@ fun App(vm: VM) {
     Scaffold(
         containerColor = BG,
         bottomBar = {
-            NavigationBar(containerColor = CARD) {
-                listOf("Jobs" to "🔎", "Saved (${vm.saved.size})" to "★", "Alerts" to "🔔").forEachIndexed { i, (name, icon) ->
-                    NavigationBarItem(selected = tab == i, onClick = { tab = i }, icon = { Text(icon) }, label = { Text(name) })
+            NavigationBar(
+                containerColor = CARD,
+                tonalElevation = 0.dp,
+            ) {
+                val items = listOf(
+                    Triple(0, "Jobs", "⌕"),
+                    Triple(1, "Saved (${vm.saved.size})", "★"),
+                    Triple(2, "Alerts", "◷"),
+                )
+                items.forEach { (i, name, icon) ->
+                    NavigationBarItem(
+                        selected = tab == i,
+                        onClick = { tab = i },
+                        icon = {
+                            Text(icon, fontSize = 18.sp, color = if (tab == i) ACCENT else MUTED)
+                        },
+                        label = {
+                            Text(
+                                name,
+                                fontSize = 11.sp,
+                                fontWeight = if (tab == i) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (tab == i) TEXT else MUTED,
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            indicatorColor = ACCENT.copy(alpha = 0.15f),
+                        ),
+                    )
                 }
             }
         },
@@ -219,13 +261,38 @@ fun App(vm: VM) {
 fun <T> Picker(label: String, options: List<Pair<String, T>>, selected: T, onPick: (T) -> Unit, modifier: Modifier = Modifier) {
     var open by remember { mutableStateOf(false) }
     Box(modifier) {
-        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(options.firstOrNull { it.second == selected }?.first ?: label, maxLines = 1)
-            Text(" ▾")
+        OutlinedButton(
+            onClick = { open = true },
+            modifier = Modifier.fillMaxWidth(),
+            shape = ShapeSm,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = TEXT),
+            border = ButtonDefaults.outlinedButtonBorder.copy(
+                width = 1.dp,
+                brush = androidx.compose.ui.graphics.SolidColor(BORDER),
+            ),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            Text(
+                options.firstOrNull { it.second == selected }?.first ?: label,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+                fontSize = 13.sp,
+            )
+            Text(" ▾", color = MUTED, fontSize = 12.sp)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             options.forEach { (name, v) ->
-                DropdownMenuItem(text = { Text(name) }, onClick = { onPick(v); open = false })
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            name,
+                            color = if (v == selected) ACCENT else TEXT,
+                            fontWeight = if (v == selected) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                    },
+                    onClick = { onPick(v); open = false },
+                )
             }
         }
     }
@@ -237,42 +304,87 @@ fun JobCard(
     extra: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val uri = LocalUriHandler.current
-    Card(colors = CardDefaults.cardColors(containerColor = CARD), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Column(Modifier.padding(12.dp)) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CARD),
+        shape = ShapeMd,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp)
+            .border(1.dp, BORDER.copy(alpha = 0.55f), ShapeMd),
+    ) {
+        Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(TIERN[j.tier] ?: "P3", color = TIERC[j.tier] ?: MUTED, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(8.dp))
-                Text(j.title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                if (isNew) Text("NEW", color = Color(0xFF22C55E), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Box(
+                    modifier = Modifier
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                        .background((TIERC[j.tier] ?: MUTED).copy(alpha = 0.18f))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        TIERN[j.tier] ?: "P3",
+                        color = TIERC[j.tier] ?: MUTED,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    j.title,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    color = TEXT,
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (isNew) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("NEW", color = GREEN, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
             }
-            Text("${j.company} · ${j.location.ifEmpty { "—" }}", color = MUTED, fontSize = 13.sp)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "${j.company}  ·  ${j.location.ifEmpty { "—" }}",
+                color = MUTED,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(4.dp))
             Text(
                 listOf(j.portal.replaceFirstChar { it.uppercase() }, age(j), j.exp, j.salary)
-                    .filter { it.isNotBlank() }.joinToString(" · "),
-                color = MUTED, fontSize = 12.sp,
+                    .filter { it.isNotBlank() }.joinToString("  ·  "),
+                color = MUTED.copy(alpha = 0.85f),
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
+            Spacer(Modifier.height(12.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(top = 6.dp),
             ) {
-                Button(onClick = { runCatching { uri.openUri(j.url) } }) { Text("Open Job") }
-                OutlinedButton(onClick = onSave) { Text(if (saved) saveText else "☆ Save") }
+                Button(
+                    onClick = { runCatching { uri.openUri(j.url) } },
+                    shape = ShapeSm,
+                    colors = ButtonDefaults.buttonColors(containerColor = ACCENT, contentColor = BG),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                ) { Text("Open", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                OutlinedButton(
+                    onClick = onSave,
+                    shape = ShapeSm,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = if (saved) AMBER else TEXT),
+                    border = ButtonDefaults.outlinedButtonBorder.copy(
+                        width = 1.dp,
+                        brush = androidx.compose.ui.graphics.SolidColor(if (saved) AMBER else BORDER),
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                ) { Text(if (saved) saveText else "☆ Save", fontSize = 13.sp) }
                 extra?.invoke(this)
             }
         }
     }
-}
-
-private fun shareCsv(ctx: Context, list: List<Posting>) {
-    fun q(s: String) = "\"" + s.replace("\"", "\"\"") + "\""
-    val sb = StringBuilder("tier,title,company,location,portal,posted,link\n")
-    list.forEach {
-        sb.append(listOf(TIERN[it.tier] ?: "P3", it.title, it.company, it.location, it.portal, age(it), it.url).joinToString(",") { s -> q(s) })
-        sb.append('\n')
-    }
-    val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, sb.toString())
-    ctx.startActivity(Intent.createChooser(i, "Share jobs").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
 
 @Composable
@@ -284,7 +396,7 @@ fun JobsTab(vm: VM) {
     val savedKeys = vm.saved.map { Engine.key(it) }.toSet()
     val adhoc = vm.active.id == "adhoc"
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Picker(
@@ -294,7 +406,16 @@ fun JobsTab(vm: VM) {
                     onPick = { id -> vm.profiles.firstOrNull { it.id == id }?.let { vm.open(it) } },
                     modifier = Modifier.weight(1f),
                 )
-                Button(onClick = { vm.refresh() }, enabled = !vm.loading) { Text("↻") }
+                FilledIconButton(
+                    onClick = { vm.refresh() },
+                    enabled = !vm.loading,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = ACCENT,
+                        contentColor = BG,
+                        disabledContainerColor = ACCENT.copy(alpha = 0.4f),
+                    ),
+                    modifier = Modifier.size(44.dp),
+                ) { Text(if (vm.loading) "…" else "↻", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
                 OutlinedTextField(
@@ -362,7 +483,7 @@ fun SavedTab(vm: VM) {
     val ctx = LocalContext.current
     var hideApplied by remember { mutableStateOf(false) }
     val list = vm.saved.filter { !(hideApplied && it.applied) }.sortedBy { it.applied }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("${vm.saved.size} saved · ${vm.saved.count { it.applied }} applied", color = MUTED)
