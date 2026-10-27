@@ -27,7 +27,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-// LaunchedEffect in runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
@@ -44,6 +43,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import androidx.core.content.FileProvider
 import java.io.File
+
 private val BG = Color(0xFF0B1220)
 private val CARD = Color(0xFF151E2E)
 private val CARD2 = Color(0xFF1B2638)
@@ -162,17 +162,7 @@ class VM(app: Application) : AndroidViewModel(app) {
         st.putCache(p.id, jobs)
         profiles = st.allProfiles()
         active = p
-        if (makeDefault) setDefault(p)
-    }
-
-    fun setDefault(p: Profile) { st.defaultId = p.id; defaultId = p.id }
-
-    fun delete(p: Profile) {
-        if (p.builtIn) return
-        st.deleteProfile(p.id)
-        profiles = st.allProfiles()
-        if (defaultId == p.id) { st.defaultId = "ops"; defaultId = "ops" }
-        open(profiles.firstOrNull { it.id == defaultId } ?: BUILTIN[0])
+        if (makeDefault) setDefault(p.id)
     }
 
     fun toggleSave(j: Posting) {
@@ -185,8 +175,6 @@ class VM(app: Application) : AndroidViewModel(app) {
         saved = saved.map { if (it.id == j.id) it.copy(applied = !it.applied) else it }
         st.putSaved(saved)
     }
-}
-
 
     fun markApplied(j: Posting) {
         val k = Engine.key(j)
@@ -196,12 +184,9 @@ class VM(app: Application) : AndroidViewModel(app) {
             st.putApplied(cur)
             applied = cur
         }
-        // remove from saved if present
         val s = saved.filter { Engine.key(it) != k }
         if (s.size != saved.size) { saved = s; st.putSaved(s) }
-        // hide from current jobs list
         jobs = jobs.filter { Engine.key(it) != k }
-        // strip from profile cache so it won't reappear
         if (active.id != "adhoc") {
             st.putCache(active.id, st.cache(active.id).filter { Engine.key(it) != k })
         }
@@ -222,7 +207,7 @@ class VM(app: Application) : AndroidViewModel(app) {
     }
 
     fun savePreference(name: String, makeDefault: Boolean) {
-        val qs = if (active.id == "adhoc") active.queries else active.queries
+        val qs = active.queries
         if (qs.isEmpty()) return
         val id = "pref_" + System.currentTimeMillis().toString(36)
         val p = Profile(id, name.ifBlank { qs.first().take(32) }, qs, ops = false)
@@ -240,6 +225,7 @@ class VM(app: Application) : AndroidViewModel(app) {
         if (defaultId == id) setDefault("ops")
         if (active.id == id) open(profiles.firstOrNull { it.id == defaultId } ?: BUILTIN[0])
     }
+}
 
 class MainActivity : ComponentActivity() {
     private val vm: VM by viewModels()
@@ -266,7 +252,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        vm.reload()   // pick up jobs found by background checks
+        vm.reload()
     }
 }
 
@@ -370,7 +356,6 @@ fun JobCard(
 ) {
     val uri = LocalUriHandler.current
 
-    val uri = LocalUriHandler.current
     Card(
         colors = CardDefaults.cardColors(containerColor = CARD),
         shape = ShapeMd,
@@ -501,7 +486,7 @@ fun JobsTab(vm: VM) {
                     TextButton(onClick = { vm.saveActive(false) }, enabled = vm.jobs.isNotEmpty()) { Text("＋ Save profile") }
                     TextButton(onClick = { vm.saveActive(true) }, enabled = vm.jobs.isNotEmpty()) { Text("★ Save & default") }
                 } else {
-                    if (vm.active.id != vm.defaultId) TextButton(onClick = { vm.setDefault(vm.active) }) { Text("★ Make default") }
+                    if (vm.active.id != vm.defaultId) TextButton(onClick = { vm.setDefault(vm.active.id) }) { Text("★ Make default") }
                     else Text("★ Default · used for alerts", color = MUTED, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 12.dp))
                     if (!vm.active.builtIn) TextButton(onClick = { vm.delete(vm.active) }) { Text("Delete") }
                 }
@@ -579,7 +564,6 @@ fun SavedTab(vm: VM) {
 
 private fun clock(mins: Int): String =
     "%d:%02d %s".format(((mins / 60 + 11) % 12) + 1, mins % 60, if (mins / 60 < 12) "AM" else "PM")
-
 
 @Composable
 fun AppliedTab(vm: VM) {
