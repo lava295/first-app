@@ -206,16 +206,24 @@ class VM(app: Application) : AndroidViewModel(app) {
         profiles = st.allProfiles()
     }
 
+    fun delete(p: Profile) {
+        if (p.builtIn) return
+        st.deleteProfile(p.id)
+        profiles = st.allProfiles()
+        if (defaultId == p.id) { st.defaultId = "ops"; defaultId = "ops" }
+        open(profiles.firstOrNull { it.id == defaultId } ?: BUILTIN[0])
+    }
+
     fun savePreference(name: String, makeDefault: Boolean) {
         val qs = active.queries
         if (qs.isEmpty()) return
         val id = "pref_" + System.currentTimeMillis().toString(36)
-        val p = Profile(id, name.ifBlank { qs.first().take(32) }, qs, ops = false)
-        val customs = st.customProfiles() + p
+        val profileObj = Profile(id, name.ifBlank { qs.first().take(32) }, qs, ops = false)
+        val customs = st.customProfiles() + profileObj
         st.putProfiles(customs)
         profiles = st.allProfiles()
         if (makeDefault) setDefault(id)
-        open(p)
+        open(profileObj)
     }
 
     fun deletePreference(id: String) {
