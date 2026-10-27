@@ -41,7 +41,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-
+import android.content.Intent
+import androidx.core.content.FileProvider
+import java.io.File
 private val BG = Color(0xFF0B1220)
 private val CARD = Color(0xFF151E2E)
 private val CARD2 = Color(0xFF1B2638)
@@ -588,9 +590,6 @@ fun AlertsTab(vm: VM) {
         )
     }
 }
-import android.content.Intent
-import androidx.core.content.FileProvider
-import java.io.File
 
 fun shareCsv(context: Context, jobs: List<Posting>) {
     val csvHeader = "Title,Company,Location,Portal,Salary,URL\n"
