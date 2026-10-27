@@ -41,7 +41,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import android.content.Intent
 import androidx.core.content.FileProvider
 import java.io.File
 private val BG = Color(0xFF0B1220)
