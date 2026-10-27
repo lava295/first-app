@@ -111,9 +111,13 @@ private val MEDIA = listOf(
 private val STOP = setOf("a", "an", "the", "and", "of", "for", "in", "at", "to", "job", "jobs")
 
 object Engine {
-    private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    private const val UA =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
     private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .build()
 
     val ORDER: Comparator<Posting> = compareBy<Posting>({ it.tier }, { -it.score }, { -it.postedAt })
 
@@ -197,7 +201,14 @@ object Engine {
             .sortedWith(ORDER).take(600)
     }
 
-    fun filter(list: List<Posting>, hours: Long, portal: String, loc: String, hideWeak: Boolean, newest: Boolean): List<Posting> {
+    fun filter(
+        list: List<Posting>,
+        hours: Long,
+        portal: String,
+        loc: String,
+        hideWeak: Boolean,
+        newest: Boolean,
+    ): List<Posting> {
         val since = System.currentTimeMillis() - hours * H
         val l = cityNorm(loc)
         val out = list.filter {
@@ -238,7 +249,20 @@ object Engine {
     // ---------- http ----------
     private suspend fun get(url: String, extra: Map<String, String> = emptyMap()): Pair<Int, String> =
         withContext(Dispatchers.IO) {
-            val rb = Request.Builder().url(url).header("User-Agent", UA).header("Accept-Language", "en-US,en;q=0.9")
+            val rb = Request.Builder()
+                .url(url)
+                .header("User-Agent", UA)
+                .header("Accept-Language", "en-IN,en;q=0.9")
+                .header(
+                    "Accept",
+                    extra["Accept"]
+                        ?: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+                )
+                .header("Referer", "https://www.naukri.com/")
+                .header("Origin", "https://www.naukri.com")
+                .header("sec-fetch-dest", "empty")
+                .header("sec-fetch-mode", "cors")
+                .header("sec-fetch-site", "same-origin")
             extra.forEach { (k, v) -> rb.header(k, v) }
             http.newCall(rb.build()).execute().use { it.code to (it.body?.string() ?: "") }
         }
@@ -248,7 +272,16 @@ object Engine {
 
     private fun slug(q: String) = q.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
 
-    private fun mk(portal: String, title: String, company: String, loc: String, url: String, ts: Long?, exp: String = "", sal: String = ""): Posting {
+    private fun mk(
+        portal: String,
+        title: String,
+        company: String,
+        loc: String,
+        url: String,
+        ts: Long?,
+        exp: String = "",
+        sal: String = "",
+    ): Posting {
         val u = url.substringBefore("?")
         return Posting(
             sha("$portal|$u"), portal, title.trim(), company.trim().ifEmpty { "Unknown" }, loc.trim(), u,
@@ -261,9 +294,12 @@ object Engine {
         val out = mutableListOf<Posting>()
         for (pg in 0 until pages) {
             val url = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search".toHttpUrl().newBuilder()
-                .addQueryParameter("keywords", q).addQueryParameter("location", "India")
-                .addQueryParameter("f_TPR", "r$windowSec").addQueryParameter("sortBy", "DD")
-                .addQueryParameter("start", (pg * 25).toString()).build().toString()
+                .addQueryParameter("keywords", q)
+                .addQueryParameter("location", "India")
+                .addQueryParameter("f_TPR", "r$windowSec")
+                .addQueryParameter("sortBy", "DD")
+                .addQueryParameter("start", (pg * 25).toString())
+                .build().toString()
             var (code, body) = get(url)
             if (code == 429) {
                 delay(3000)
@@ -297,11 +333,41 @@ object Engine {
         for (pg in 1..pages) {
             // 1) JSON search API (richer: real dates, salary, experience)
             val api = "https://www.naukri.com/jobapi/v3/search".toHttpUrl().newBuilder()
-                .addQueryParameter("noOfResults", "20").addQueryParameter("urlType", "search_by_keyword")
-                .addQueryParameter("searchType", "adv").addQueryParameter("keyword", q)
-                .addQueryParameter("pageNo", pg.toString()).addQueryParameter("seoKey", "$slug-jobs")
-                .addQueryParameter("src", "jobsearchDesk").build().toString()
-            val (c, b) = get(api, mapOf("appid" to "109", "systemid" to "109", "clientid" to "d3skt0p", "Accept" to "application/json"))
+                .addQueryParameter("noOfResults", "20")
+                .addQueryParameter("urlType", "search_by_keyword")
+                .addQueryParameter("searchType", "adv")
+                .addQueryParameter("keyword", q)
+                .addQueryParameter("location", "india")
+                .addQueryParameter("pageNo", pg.toString())
+                .addQueryParameter("seoKey", "$slug-jobs-in-india")
+                .addQueryParameter("src", "jobsearchDesk")
+                .addQueryParameter("k", q)
+                .addQueryParameter("l", "india")
+                .build().toString()
+
+            val (c, b) = get(
+                api,
+                mapOf(
+                    "appid" to "109",
+                    "systemid" to "109",
+                    "clientid" to "d3skt0p",
+                    "Accept" to "application/json",
+                    "Content-Type" to "application/json",
+                ),
+            )
+
+            // hard blocks — stop burning queries on this portal
+            when (c) {
+                406 -> {
+                    err = "recaptcha (406)"
+                    break
+                }
+                403, 429 -> {
+                    err = "HTTP $c"
+                    break
+                }
+            }
+
             val arr = if (c == 200) runCatching { JSONObject(b).optJSONArray("jobDetails") }.getOrNull() else null
             if (arr != null && arr.length() > 0) {
                 for (i in 0 until arr.length()) {
@@ -321,23 +387,40 @@ object Engine {
                         }
                     }
                     val created = o.optLong("createdDate", 0L)
-                    val ts: Long? = if (created > 0) created else parseAgo(o.optString("footerPlaceholderLabel"))
+                    val ts: Long? =
+                        if (created > 0) created else parseAgo(o.optString("footerPlaceholderLabel"))
                     out += mk("naukri", title, o.optString("companyName"), loc, url, ts, exp, sal)
                 }
-                delay(800)
+                delay(900 + (0..400).random().toLong())
                 continue
             }
-            // 2) HTML fallback
-            val url = if (pg == 1) "https://www.naukri.com/$slug-jobs-in-india" else "https://www.naukri.com/$slug-jobs-in-india-$pg"
-            val (hc, hb) = get(url)
-            if (hc != 200) { err = "HTTP $hc"; break }
-            val cards = Jsoup.parse(hb).select("div.srp-jobtuple-wrapper, article.jobTuple, div[data-job-id]")
-            if (cards.isEmpty()) { err = "blocked / no results"; break }
+
+            // 2) HTML fallback (modern Naukri is JS-rendered — often empty)
+            if (c != 200 && c != 0) {
+                err = err ?: "HTTP $c"
+                break
+            }
+            val pageUrl = if (pg == 1)
+                "https://www.naukri.com/$slug-jobs-in-india"
+            else
+                "https://www.naukri.com/$slug-jobs-in-india-$pg"
+            val (hc, hb) = get(pageUrl)
+            if (hc != 200) {
+                err = err ?: "HTTP $hc"
+                break
+            }
+            val cards = Jsoup.parse(hb).select(
+                "div.srp-jobtuple-wrapper, article.jobTuple, div[data-job-id], a[href*='/job-listings']",
+            )
+            if (cards.isEmpty()) {
+                err = err ?: "blocked / no results"
+                break
+            }
             for (card in cards) {
-                val a = card.selectFirst("a.title, a[class*='title']")
+                val a = card.selectFirst("a.title, a[class*='title'], a[href*='/job-listings']")
                 val title = a?.text().orEmpty()
                 val href = a?.attr("href").orEmpty()
-                if (title.isEmpty() || href.isEmpty()) continue
+                if (title.length < 5 || href.isEmpty()) continue
                 val full = if (href.startsWith("http")) href else "https://www.naukri.com$href"
                 out += mk(
                     "naukri", title,
@@ -348,7 +431,7 @@ object Engine {
                     card.selectFirst(".sal-wrap, .sal")?.text().orEmpty(),
                 )
             }
-            delay(900)
+            delay(1000 + (0..500).random().toLong())
         }
         return out to err
     }
@@ -363,7 +446,10 @@ object Engine {
             if (code == 404) {
                 val r = get("https://internshala.com/jobs/$s-jobs$suffix"); code = r.first; body = r.second
             }
-            if (code != 200) { err = if (code == 404) null else "HTTP $code"; break }
+            if (code != 200) {
+                err = if (code == 404) null else "HTTP $code"
+                break
+            }
             val cards = Jsoup.parse(body).select("div.individual_internship, div[id^='individual_internship']")
             if (cards.isEmpty()) break
             for (c in cards) {
@@ -391,7 +477,10 @@ object Engine {
         else -> e.javaClass.simpleName
     }
 
-    private suspend fun runPortal(qs: List<String>, fn: suspend (String) -> Pair<List<Posting>, String?>): Pair<List<Posting>, String> {
+    private suspend fun runPortal(
+        qs: List<String>,
+        fn: suspend (String) -> Pair<List<Posting>, String?>,
+    ): Pair<List<Posting>, String> {
         val acc = mutableListOf<Posting>()
         var err: String? = null
         var fails = 0
@@ -425,6 +514,13 @@ object Engine {
             .map { score(it, p) }
             .filter { j -> p.match.isEmpty() || p.match.any { has(norm(j.title), it) } }
             .sortedWith(ORDER)
-        IngestResult(jobs, mapOf("LinkedIn" to rs[0].second, "Naukri" to rs[1].second, "Internshala" to rs[2].second))
+        IngestResult(
+            jobs,
+            mapOf(
+                "LinkedIn" to rs[0].second,
+                "Naukri" to rs[1].second,
+                "Internshala" to rs[2].second,
+            ),
+        )
     }
 }
