@@ -588,3 +588,29 @@ fun AlertsTab(vm: VM) {
         )
     }
 }
+import android.content.Intent
+import androidx.core.content.FileProvider
+import java.io.File
+
+fun shareCsv(context: Context, jobs: List<Posting>) {
+    val csvHeader = "Title,Company,Location,Portal,Salary,URL\n"
+    val csvRows = jobs.joinToString("\n") { j ->
+        "\"${j.title.replace("\"", "\"\"")}\"," +
+        "\"${j.company.replace("\"", "\"\"")}\"," +
+        "\"${j.location.replace("\"", "\"\"")}\"," +
+        "\"${j.portal}\"," +
+        "\"${j.salary.replace("\"", "\"\"")}\"," +
+        "\"${j.url}\""
+    }
+    
+    val file = File(context.cacheDir, "relaxed_jobs.csv")
+    file.writeText(csvHeader + csvRows)
+    
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/csv"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Share CSV"))
+}
