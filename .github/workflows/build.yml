@@ -1,32 +1,38 @@
 name: Build APK
-
 on:
   push:
-    branches: [ "main" ]
-  workflow_dispatch:
-
+    branches: [main, master]
+  workflow_dispatch: {}
 jobs:
   build:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-24.04
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '17'
+      - name: Locate Gradle project
+        run: |
+          F=$(find . -name settings.gradle.kts -not -path './.git/*' | head -n1)
+          if [ -z "$F" ]; then echo "::error::settings.gradle.kts not found - upload the project files, not the zip"; ls -R | head -50; exit 1; fi
+          D=$(dirname "$F")
+          echo "Project dir: $D"
+          echo "PROJECT_DIR=$D" >> "$GITHUB_ENV"
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
 
-    - name: Build Debug APK
-      run: ./gradlew assembleDebug
+      - uses: android-actions/setup-android@v3
 
-    - name: Upload APK Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Relax-apk
-        path: app/build/outputs/apk/debug/app-debug.apk
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Build debug APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Relax-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
