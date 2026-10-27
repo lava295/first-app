@@ -1,21 +1,16 @@
-Relax update v2
-Overwrite these paths in `lava295/first-app` then push `main`:
-```
-app/src/main/AndroidManifest.xml
-app/src/main/java/app/relax/MainActivity.kt
+Naukri permanent fix
+Replace only:
 app/src/main/java/app/relax/Engine.kt
-app/src/main/java/app/relax/Alerts.kt
-app/src/main/res/drawable/ic_launcher_foreground.png
-app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
-app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
-app/src/main/res/mipmap-*/ic_launcher.png
-app/src/main/res/mipmap-*/ic_launcher_round.png
-app/src/main/res/values/colors.xml
-```
-What's included
-Icon — your attached photo (man in papasan chair), adaptive + all densities
-Notifications fixed — only default preference + time window + strong filter; never applied/seen; permission requested on Alerts tab; WorkManager re-armed
-Naukri — full browser headers; soft-fails on 406 with clear status (use mobile data)
-Open → Applied — tapping Open marks applied, hides from Jobs forever, shows in Applied tab
-Preferences — Save preference from adhoc search, Make default (★), delete custom prefs; alerts use default only
-After install: Alerts tab → allow notifications → set Hourly or Daily → Battery unrestricted.
+Why 406 happened
+Naukri's WEB client (`src=jobsearchDesk`) triggers reCAPTCHA on datacenter /
+VPN / repeated bot-like TLS fingerprints. Status 406 = "recaptcha required".
+What this fix does
+Path A (primary): call the same API with `src=jobsearchAndroid` + okhttp UA
+— this is the official mobile-app traffic shape and skips web recaptcha on most networks.
+Path B: fall back to desktop web headers if Android path fails.
+Path C: HTML page scrape last resort.
+Cookie jar: warm session on naukri.com so `_t_ds` / `J` cookies stick.
+Backoff: exponential delay on 406/429 before switching path.
+Stops burning queries after consecutive blocks.
+Verified live: `src=jobsearchAndroid` returned HTTP 200 + jobDetails from this environment.
+Push main → rebuild APK.
