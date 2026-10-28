@@ -27,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+// LaunchedEffect in runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
@@ -43,7 +44,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import androidx.core.content.FileProvider
 import java.io.File
-
 private val BG = Color(0xFF0B1220)
 private val CARD = Color(0xFF151E2E)
 private val CARD2 = Color(0xFF1B2638)
@@ -85,6 +85,8 @@ class VM(app: Application) : AndroidViewModel(app) {
     var jobs by mutableStateOf<List<Posting>>(emptyList())
     var saved by mutableStateOf(st.saved())
     var applied by mutableStateOf(st.applied())
+    var resumeDoc by mutableStateOf<Resume.ProfileDoc?>(null)
+    var pendingFit by mutableStateOf<Posting?>(null)
     var loading by mutableStateOf(false)
     var status by mutableStateOf<Map<String, String>>(emptyMap())
 
@@ -101,6 +103,7 @@ class VM(app: Application) : AndroidViewModel(app) {
 
     init {
         st.lastOpen = System.currentTimeMillis()
+        resumeDoc = Resume.load(app)
         open(active)
     }
 
@@ -162,7 +165,17 @@ class VM(app: Application) : AndroidViewModel(app) {
         st.putCache(p.id, jobs)
         profiles = st.allProfiles()
         active = p
-        if (makeDefault) setDefault(p.id)
+        if (makeDefault) setDefault(p)
+    }
+
+    fun setDefault(p: Profile) { st.defaultId = p.id; defaultId = p.id }
+
+    fun delete(p: Profile) {
+        if (p.builtIn) return
+        st.deleteProfile(p.id)
+        profiles = st.allProfiles()
+        if (defaultId == p.id) { st.defaultId = "ops"; defaultId = "ops" }
+        open(profiles.firstOrNull { it.id == defaultId } ?: BUILTIN[0])
     }
 
     fun toggleSave(j: Posting) {
@@ -175,6 +188,8 @@ class VM(app: Application) : AndroidViewModel(app) {
         saved = saved.map { if (it.id == j.id) it.copy(applied = !it.applied) else it }
         st.putSaved(saved)
     }
+}
+
 
     fun markApplied(j: Posting) {
         val k = Engine.key(j)
@@ -184,9 +199,12 @@ class VM(app: Application) : AndroidViewModel(app) {
             st.putApplied(cur)
             applied = cur
         }
+        // remove from saved if present
         val s = saved.filter { Engine.key(it) != k }
         if (s.size != saved.size) { saved = s; st.putSaved(s) }
+        // hide from current jobs list
         jobs = jobs.filter { Engine.key(it) != k }
+        // strip from profile cache so it won't reappear
         if (active.id != "adhoc") {
             st.putCache(active.id, st.cache(active.id).filter { Engine.key(it) != k })
         }
@@ -206,24 +224,16 @@ class VM(app: Application) : AndroidViewModel(app) {
         profiles = st.allProfiles()
     }
 
-    fun delete(p: Profile) {
-        if (p.builtIn) return
-        st.deleteProfile(p.id)
-        profiles = st.allProfiles()
-        if (defaultId == p.id) { st.defaultId = "ops"; defaultId = "ops" }
-        open(profiles.firstOrNull { it.id == defaultId } ?: BUILTIN[0])
-    }
-
     fun savePreference(name: String, makeDefault: Boolean) {
-        val qs = active.queries
+        val qs = if (active.id == "adhoc") active.queries else active.queries
         if (qs.isEmpty()) return
         val id = "pref_" + System.currentTimeMillis().toString(36)
-        val profileObj = Profile(id, name.ifBlank { qs.first().take(32) }, qs, ops = false)
-        val customs = st.customProfiles() + profileObj
+        val p = Profile(id, name.ifBlank { qs.first().take(32) }, qs, ops = false)
+        val customs = st.customProfiles() + p
         st.putProfiles(customs)
         profiles = st.allProfiles()
         if (makeDefault) setDefault(id)
-        open(profileObj)
+        open(p)
     }
 
     fun deletePreference(id: String) {
@@ -233,7 +243,12 @@ class VM(app: Application) : AndroidViewModel(app) {
         if (defaultId == id) setDefault("ops")
         if (active.id == id) open(profiles.firstOrNull { it.id == defaultId } ?: BUILTIN[0])
     }
-}
+
+
+    fun setResume(doc: Resume.ProfileDoc?) {
+        resumeDoc = doc
+        if (doc != null) Resume.save(getApplication(), doc) else Resume.clear(getApplication())
+    }
 
 class MainActivity : ComponentActivity() {
     private val vm: VM by viewModels()
@@ -260,7 +275,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        vm.reload()
+        vm.reload()   // pick up jobs found by background checks
     }
 }
 
@@ -278,7 +293,8 @@ fun App(vm: VM) {
                     Triple(0, "Jobs", "⌕"),
                     Triple(1, "Saved (${vm.saved.size})", "★"),
                     Triple(2, "Applied (${vm.applied.size})", "✓"),
-                    Triple(3, "Alerts", "◷"),
+                    Triple(3, "Resume", "⌂"),
+                    Triple(4, "Alerts", "◷"),
                 )
                 items.forEach { (i, name, icon) ->
                     NavigationBarItem(
@@ -309,6 +325,7 @@ fun App(vm: VM) {
                 0 -> JobsTab(vm)
                 1 -> SavedTab(vm)
                 2 -> AppliedTab(vm)
+                3 -> ResumeTab(vm)
                 else -> AlertsTab(vm)
             }
         }
@@ -360,10 +377,12 @@ fun <T> Picker(label: String, options: List<Pair<String, T>>, selected: T, onPic
 fun JobCard(
     j: Posting, saved: Boolean, isNew: Boolean, saveText: String, onSave: () -> Unit,
     onOpen: () -> Unit = {},
+    onTailor: (() -> Unit)? = null,
     extra: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val uri = LocalUriHandler.current
 
+    val uri = LocalUriHandler.current
     Card(
         colors = CardDefaults.cardColors(containerColor = CARD),
         shape = ShapeMd,
@@ -444,6 +463,18 @@ fun JobCard(
                     ),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 ) { Text(if (saved) saveText else "☆ Save", fontSize = 13.sp) }
+                if (onTailor != null) {
+                    OutlinedButton(
+                        onClick = onTailor,
+                        shape = ShapeSm,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ACCENT),
+                        border = ButtonDefaults.outlinedButtonBorder.copy(
+                            width = 1.dp,
+                            brush = androidx.compose.ui.graphics.SolidColor(ACCENT),
+                        ),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                    ) { Text("Fit", fontSize = 13.sp) }
+                }
                 extra?.invoke(this)
             }
         }
@@ -494,7 +525,7 @@ fun JobsTab(vm: VM) {
                     TextButton(onClick = { vm.saveActive(false) }, enabled = vm.jobs.isNotEmpty()) { Text("＋ Save profile") }
                     TextButton(onClick = { vm.saveActive(true) }, enabled = vm.jobs.isNotEmpty()) { Text("★ Save & default") }
                 } else {
-                    if (vm.active.id != vm.defaultId) TextButton(onClick = { vm.setDefault(vm.active.id) }) { Text("★ Make default") }
+                    if (vm.active.id != vm.defaultId) TextButton(onClick = { vm.setDefault(vm.active) }) { Text("★ Make default") }
                     else Text("★ Default · used for alerts", color = MUTED, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 12.dp))
                     if (!vm.active.builtIn) TextButton(onClick = { vm.delete(vm.active) }) { Text("Delete") }
                 }
@@ -529,6 +560,7 @@ fun JobsTab(vm: VM) {
                 isNew = !adhoc && vm.prevOpen > 0 && j.firstSeen > vm.prevOpen,
                 saveText = "★ Saved", onSave = { vm.toggleSave(j) },
                 onOpen = { vm.markApplied(j) },
+                onTailor = if (vm.resumeDoc != null) ({ vm.pendingFit = j }) else null,
             )
         }
         if (shown.isEmpty() && !vm.loading) {
@@ -572,6 +604,7 @@ fun SavedTab(vm: VM) {
 
 private fun clock(mins: Int): String =
     "%d:%02d %s".format(((mins / 60 + 11) % 12) + 1, mins % 60, if (mins / 60 < 12) "AM" else "PM")
+
 
 @Composable
 fun AppliedTab(vm: VM) {
@@ -618,6 +651,217 @@ fun AppliedTab(vm: VM) {
             }
         }
         item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+
+@Composable
+fun ResumeTab(vm: VM) {
+    val ctx = LocalContext.current
+    val doc = vm.resumeDoc
+    var status by remember { mutableStateOf("") }
+    var fitJob by remember { mutableStateOf<Posting?>(null) }
+    var fitResult by remember { mutableStateOf<Resume.FitResult?>(null) }
+
+    // consume pending fit from Jobs tab
+    LaunchedEffect(vm.pendingFit) {
+        val j = vm.pendingFit ?: return@LaunchedEffect
+        val d = vm.resumeDoc
+        if (d != null) {
+            fitJob = j
+            fitResult = Resume.fit(d, j)
+        } else {
+            status = "Upload your resume first, then tap Fit on a job."
+        }
+        vm.pendingFit = null
+    }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        status = "Reading…"
+        try {
+            val text = Resume.extractText(ctx, uri)
+            if (text.length < 40) {
+                status = "Could not read text from that file. Use PDF/DOCX with selectable text, or paste plain text."
+                return@rememberLauncherForActivityResult
+            }
+            val parsed = Resume.parse(text)
+            vm.setResume(parsed)
+            status = "Loaded · ${parsed.skills.size} skills · ${parsed.bullets.size} bullets"
+        } catch (e: Exception) {
+            status = "Failed: ${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(14.dp),
+    ) {
+        Text("Resume", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TEXT)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Upload once. For any job, tap Fit — we score the match and rewrite your existing bullets with JD keywords. Nothing beyond your real work is added.",
+            color = MUTED,
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
+        )
+        Spacer(Modifier.height(12.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { picker.launch("application/*") },
+                shape = ShapeSm,
+                colors = ButtonDefaults.buttonColors(containerColor = ACCENT, contentColor = BG),
+            ) { Text(if (doc == null) "Upload PDF / DOCX" else "Replace resume", fontWeight = FontWeight.SemiBold) }
+            if (doc != null) {
+                OutlinedButton(
+                    onClick = { vm.setResume(null); fitResult = null; fitJob = null; status = "Cleared" },
+                    shape = ShapeSm,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TEXT),
+                    border = ButtonDefaults.outlinedButtonBorder.copy(
+                        width = 1.dp,
+                        brush = androidx.compose.ui.graphics.SolidColor(BORDER),
+                    ),
+                ) { Text("Remove") }
+            }
+        }
+
+        if (status.isNotEmpty()) {
+            Text(status, color = MUTED, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+        }
+
+        if (doc != null) {
+            Spacer(Modifier.height(14.dp))
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CARD),
+                shape = ShapeMd,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, BORDER.copy(alpha = 0.55f), ShapeMd),
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Text(doc.name.ifBlank { "Your resume" }, fontWeight = FontWeight.SemiBold, color = TEXT)
+                    if (doc.headline.isNotBlank()) {
+                        Text(doc.headline, color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+                    }
+                    val contact = listOf(doc.email, doc.phone).filter { it.isNotBlank() }.joinToString(" · ")
+                    if (contact.isNotEmpty()) {
+                        Text(contact, color = MUTED, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Skills detected", fontSize = 12.sp, color = MUTED)
+                    Text(
+                        doc.skills.take(16).joinToString(" · ").ifBlank { "—" },
+                        fontSize = 13.sp,
+                        color = TEXT,
+                        lineHeight = 18.sp,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text("${doc.bullets.size} experience lines indexed", fontSize = 12.sp, color = MUTED)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Go to Jobs → open any card → tap Fit. Or pick from Saved / Applied below.",
+                color = MUTED,
+                fontSize = 12.sp,
+            )
+
+            val pool = (vm.saved + vm.applied + vm.jobs).distinctBy { it.id }.take(12)
+            if (pool.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text("Quick fit", fontWeight = FontWeight.SemiBold, color = TEXT)
+                pool.forEach { j ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                fitJob = j
+                                fitResult = Resume.fit(doc, j)
+                            }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(j.title, color = TEXT, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                        Text("Fit", color = ACCENT, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    HorizontalDivider(color = BORDER.copy(alpha = 0.5f))
+                }
+            }
+        }
+
+        // Fit result panel
+        val fr = fitResult
+        val fj = fitJob
+        if (fr != null && fj != null && doc != null) {
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = BORDER)
+            Spacer(Modifier.height(12.dp))
+            Text("Fit for ${fj.title}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TEXT)
+            Text("${fj.company} · ${fj.location}", color = MUTED, fontSize = 12.sp)
+            Spacer(Modifier.height(8.dp))
+
+            // score bar
+            val scoreColor = when {
+                fr.score >= 70 -> GREEN
+                fr.score >= 45 -> AMBER
+                else -> Color(0xFFF87171)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${fr.score}", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = scoreColor)
+                Text(" / 100 fit", color = MUTED, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+            }
+            Spacer(Modifier.height(6.dp))
+            LinearProgressIndicator(
+                progress = { fr.score / 100f },
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(ShapeSm),
+                color = scoreColor,
+                trackColor = BORDER,
+            )
+
+            Spacer(Modifier.height(12.dp))
+            if (fr.matched.isNotEmpty()) {
+                Text("Matched", fontSize = 12.sp, color = GREEN, fontWeight = FontWeight.SemiBold)
+                Text(fr.matched.joinToString(" · "), color = TEXT, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+            if (fr.missing.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text("JD asks — not on your resume (not added)", fontSize = 12.sp, color = AMBER, fontWeight = FontWeight.SemiBold)
+                Text(fr.missing.take(10).joinToString(" · "), color = MUTED, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text("Tailored headline", fontSize = 12.sp, color = MUTED)
+            Text(fr.tailoredHeadline, color = TEXT, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            Text("Summary", fontSize = 12.sp, color = MUTED)
+            Text(fr.tailoredSummary, color = TEXT, fontSize = 13.sp, lineHeight = 18.sp)
+            Spacer(Modifier.height(8.dp))
+            Text("Bullets (your work, JD wording)", fontSize = 12.sp, color = MUTED)
+            fr.tailoredBullets.forEach {
+                Text("• $it", color = TEXT, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp))
+            }
+
+            Spacer(Modifier.height(8.dp))
+            fr.notes.forEach {
+                Text("· $it", color = MUTED, fontSize = 11.sp, lineHeight = 15.sp)
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = {
+                    val text = Resume.renderText(doc, fr, fj)
+                    Resume.share(ctx, text, "Resume — ${fj.title}")
+                },
+                shape = ShapeSm,
+                colors = ButtonDefaults.buttonColors(containerColor = ACCENT, contentColor = BG),
+            ) { Text("Share tailored resume", fontWeight = FontWeight.SemiBold) }
+        }
+
+        Spacer(Modifier.height(28.dp))
     }
 }
 
