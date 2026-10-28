@@ -27,7 +27,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-// LaunchedEffect in runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
@@ -44,6 +43,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import androidx.core.content.FileProvider
 import java.io.File
+
 private val BG = Color(0xFF0B1220)
 private val CARD = Color(0xFF151E2E)
 private val CARD2 = Color(0xFF1B2638)
@@ -168,7 +168,10 @@ class VM(app: Application) : AndroidViewModel(app) {
         if (makeDefault) setDefault(p)
     }
 
-    fun setDefault(p: Profile) { st.defaultId = p.id; defaultId = p.id }
+    fun setDefault(p: Profile) {
+        st.defaultId = p.id
+        defaultId = p.id
+    }
 
     fun delete(p: Profile) {
         if (p.builtIn) return
@@ -188,8 +191,6 @@ class VM(app: Application) : AndroidViewModel(app) {
         saved = saved.map { if (it.id == j.id) it.copy(applied = !it.applied) else it }
         st.putSaved(saved)
     }
-}
-
 
     fun markApplied(j: Posting) {
         val k = Engine.key(j)
@@ -199,12 +200,9 @@ class VM(app: Application) : AndroidViewModel(app) {
             st.putApplied(cur)
             applied = cur
         }
-        // remove from saved if present
         val s = saved.filter { Engine.key(it) != k }
         if (s.size != saved.size) { saved = s; st.putSaved(s) }
-        // hide from current jobs list
         jobs = jobs.filter { Engine.key(it) != k }
-        // strip from profile cache so it won't reappear
         if (active.id != "adhoc") {
             st.putCache(active.id, st.cache(active.id).filter { Engine.key(it) != k })
         }
@@ -225,7 +223,7 @@ class VM(app: Application) : AndroidViewModel(app) {
     }
 
     fun savePreference(name: String, makeDefault: Boolean) {
-        val qs = if (active.id == "adhoc") active.queries else active.queries
+        val qs = active.queries
         if (qs.isEmpty()) return
         val id = "pref_" + System.currentTimeMillis().toString(36)
         val p = Profile(id, name.ifBlank { qs.first().take(32) }, qs, ops = false)
@@ -244,11 +242,11 @@ class VM(app: Application) : AndroidViewModel(app) {
         if (active.id == id) open(profiles.firstOrNull { it.id == defaultId } ?: BUILTIN[0])
     }
 
-
     fun setResume(doc: Resume.ProfileDoc?) {
         resumeDoc = doc
         if (doc != null) Resume.save(getApplication(), doc) else Resume.clear(getApplication())
     }
+}
 
 class MainActivity : ComponentActivity() {
     private val vm: VM by viewModels()
@@ -275,7 +273,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        vm.reload()   // pick up jobs found by background checks
+        vm.reload()
     }
 }
 
@@ -380,8 +378,6 @@ fun JobCard(
     onTailor: (() -> Unit)? = null,
     extra: (@Composable RowScope.() -> Unit)? = null,
 ) {
-    val uri = LocalUriHandler.current
-
     val uri = LocalUriHandler.current
     Card(
         colors = CardDefaults.cardColors(containerColor = CARD),
@@ -605,7 +601,6 @@ fun SavedTab(vm: VM) {
 private fun clock(mins: Int): String =
     "%d:%02d %s".format(((mins / 60 + 11) % 12) + 1, mins % 60, if (mins / 60 < 12) "AM" else "PM")
 
-
 @Composable
 fun AppliedTab(vm: VM) {
     val list = vm.applied
@@ -654,7 +649,6 @@ fun AppliedTab(vm: VM) {
     }
 }
 
-
 @Composable
 fun ResumeTab(vm: VM) {
     val ctx = LocalContext.current
@@ -663,7 +657,6 @@ fun ResumeTab(vm: VM) {
     var fitJob by remember { mutableStateOf<Posting?>(null) }
     var fitResult by remember { mutableStateOf<Resume.FitResult?>(null) }
 
-    // consume pending fit from Jobs tab
     LaunchedEffect(vm.pendingFit) {
         val j = vm.pendingFit ?: return@LaunchedEffect
         val d = vm.resumeDoc
@@ -793,7 +786,6 @@ fun ResumeTab(vm: VM) {
             }
         }
 
-        // Fit result panel
         val fr = fitResult
         val fj = fitJob
         if (fr != null && fj != null && doc != null) {
@@ -804,7 +796,6 @@ fun ResumeTab(vm: VM) {
             Text("${fj.company} · ${fj.location}", color = MUTED, fontSize = 12.sp)
             Spacer(Modifier.height(8.dp))
 
-            // score bar
             val scoreColor = when {
                 fr.score >= 70 -> GREEN
                 fr.score >= 45 -> AMBER
