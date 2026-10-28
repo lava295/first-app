@@ -1,16 +1,22 @@
-Naukri permanent fix
-Replace only:
+Relax update — Resume Fit + Tailor
+Overwrite into `lava295/first-app` and push `main`:
+```
+app/src/main/AndroidManifest.xml
+app/src/main/java/app/relax/MainActivity.kt
 app/src/main/java/app/relax/Engine.kt
-Why 406 happened
-Naukri's WEB client (`src=jobsearchDesk`) triggers reCAPTCHA on datacenter /
-VPN / repeated bot-like TLS fingerprints. Status 406 = "recaptcha required".
-What this fix does
-Path A (primary): call the same API with `src=jobsearchAndroid` + okhttp UA
-— this is the official mobile-app traffic shape and skips web recaptcha on most networks.
-Path B: fall back to desktop web headers if Android path fails.
-Path C: HTML page scrape last resort.
-Cookie jar: warm session on naukri.com so `_t_ds` / `J` cookies stick.
-Backoff: exponential delay on 406/429 before switching path.
-Stops burning queries after consecutive blocks.
-Verified live: `src=jobsearchAndroid` returned HTTP 200 + jobDetails from this environment.
-Push main → rebuild APK.
+app/src/main/java/app/relax/Alerts.kt
+app/src/main/java/app/relax/Resume.kt          ← NEW
+app/src/main/res/xml/file_paths.xml           ← NEW
+app/src/main/res/drawable/ic_launcher_foreground.png
+app/src/main/res/mipmap-*/…
+app/src/main/res/values/colors.xml
+```
+Resume Fit (offline, honest)
+Open Resume tab → Upload PDF or DOCX (text-based).
+Skills + bullets are extracted and stored on-device only.
+On any job card tap Fit (or Quick fit on Resume tab).
+See score 0–100, matched vs missing keywords.
+Get tailored headline / summary / bullets that only rephrase your real work with JD vocabulary you already own.
+Missing JD skills are listed but never invented.
+Share tailored resume → text file via system share sheet.
+No API key. No cloud. No hallucinated experience.
